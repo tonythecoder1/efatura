@@ -338,6 +338,7 @@ class CsvStore:
         self.lock = FileLock(str(path) + ".lock", timeout=30)
         self._migrate_legacy_csv()
         self._deduplicate_current_records()
+        self._normalize_current_tax_rows()
         if self.index_path.exists():
             self.index_path.chmod(0o600)
 
@@ -455,6 +456,25 @@ class CsvStore:
             except Exception:
                 self._restore_file(self.path, previous_csv)
                 self._restore_file(self.index_path, previous_index)
+                raise
+
+    def _normalize_current_tax_rows(self) -> None:
+        """Rewrite existing rows using the current normalized tax display."""
+        if not self.path.exists() or not self.index_path.exists():
+            return
+        with self.lock:
+            rows = self._read()
+            index = self._read_index()
+            if len(rows) != len(index):
+                return
+            normalized_rows = [to_row(record) for record in index.values()]
+            if normalized_rows == rows:
+                return
+            previous_csv = self.path.read_bytes()
+            try:
+                self._write_csv_rows(normalized_rows)
+            except Exception:
+                self._restore_file(self.path, previous_csv)
                 raise
 
     def _write_index(self, index: dict[str, InvoiceRecord]) -> None:

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.models import InvoiceRecord
+from app.models import InvoiceRecord, Tax
 from app.storage import FIELDS, PREVIOUS_FIELDS, CsvStore, to_row
 
 
@@ -172,3 +172,18 @@ def test_startup_removes_existing_semantic_duplicates(tmp_path, invoice):
     assert len(rows) == 1
     assert migrated.find(first.sha256) == first
     assert migrated.find(second.sha256) is None
+
+
+def test_startup_normalizes_existing_tax_labels(tmp_path, invoice):
+    path = tmp_path / "faturas.csv"
+    saved = record(invoice, 1)
+    row = to_row(saved)
+    row["impostos"] = "PT IVA* 6% 0.77; IVA Reduzido 23% 0.19"
+    store = CsvStore(path)
+    store._write_csv_rows([row])
+    store._write_index({saved.sha256: saved.model_copy(update={"invoice": invoice.model_copy(update={"taxes": [Tax(label="PT IVA*", rate="6", taxable_amount=None, amount="0.77"), Tax(label="IVA Reduzido", rate="23", taxable_amount=None, amount="0.19")]})})})
+
+    normalized = CsvStore(path)
+
+    rows = list(csv.DictReader(io.StringIO(normalized.export().decode("utf-8-sig")), delimiter=";"))
+    assert rows[0]["impostos"] == "IVA 6%: 0.77; IVA 23%: 0.19"
