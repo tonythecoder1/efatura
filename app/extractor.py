@@ -68,10 +68,46 @@ Return warnings in Portuguese for unreadable fields, ambiguous data, possible mi
 items, inconsistencies or any extraction uncertainty. Do not claim certainty from the schema.
 """
 
+RECONCILIATION_PROMPT = """Re-evaluate the PDF classification before returning the result.
+The previous pass may have mistaken a payment receipt, ticket, reservation, booking
+reference, order number, ATCUD or duplicate copy for a second invoice. Treat all pages
+belonging to the same purchase, supplier and customer as one billing document, even
+when the payment receipt has its own reference or repeats the total. Count as separate
+only invoices that are clearly independent commercial documents. If this PDF contains
+one invoice, invoice-receipt, ticket-invoice or commercial receipt, return
+invoice_count=1, is_invoice=true and populate invoice with that document. If it truly
+contains multiple independent invoices, return their count and invoice=null.
+"""
+
 
 class OpenAIExtractor:
     def __init__(self, settings: Settings):
         self.settings = settings
+
+    def _request(self, client: OpenAI, encoded: str, instructions: str) -> Extraction:
+        response = client.responses.parse(
+            model=self.settings.openai_model,
+            store=False,
+            instructions=instructions,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_file",
+                            "filename": "invoice.pdf",
+                            "file_data": f"data:application/pdf;base64,{encoded}",
+                        },
+                        {"type": "input_text", "text": "Extrai os dados desta fatura."},
+                    ],
+                }
+            ],
+            text_format=Extraction,
+            max_output_tokens=16000,
+        )
+        if response.status != "completed" or response.output_parsed is None:
+            raise ExtractionFailed("A análise ficou incompleta ou foi recusada. Tenta novamente.")
+        return response.output_parsed
 
     def extract(self, data: bytes) -> Extraction:
         encoded = base64.b64encode(data).decode("ascii")
@@ -80,29 +116,10 @@ class OpenAIExtractor:
             timeout=self.settings.openai_timeout_seconds,
             max_retries=0,
         ) as client:
-            response = client.responses.parse(
-                model=self.settings.openai_model,
-                store=False,
-                instructions=PROMPT,
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_file",
-                                "filename": "invoice.pdf",
-                                "file_data": f"data:application/pdf;base64,{encoded}",
-                            },
-                            {"type": "input_text", "text": "Extrai os dados desta fatura."},
-                        ],
-                    }
-                ],
-                text_format=Extraction,
-                max_output_tokens=16000,
-            )
-        if response.status != "completed" or response.output_parsed is None:
-            raise ExtractionFailed("A análise ficou incompleta ou foi recusada. Tenta novamente.")
-        return response.output_parsed
+            result = self._request(client, encoded, PROMPT)
+            if result.invoice_count > 1 and result.invoice is None:
+                result = self._request(client, encoded, f"{PROMPT}\n{RECONCILIATION_PROMPT}")
+            return result
 
 
 def review_warnings(invoice: Invoice, warnings: list[str]) -> list[str]:
