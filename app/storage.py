@@ -199,12 +199,41 @@ def _import_taxes(value: str | None) -> list[Tax]:
         if not part:
             continue
         tokens = part.split()
-        amount = _import_decimal(tokens.pop() if tokens else None)
+        label_part, separator, amount_part = part.partition(":")
+        amount = _import_decimal(amount_part.strip() if separator else (tokens.pop() if tokens else None))
+        if separator:
+            tokens = label_part.split()
         rate = None
         if tokens and tokens[-1].endswith("%"):
             rate = _import_decimal(tokens.pop()[:-1])
-        taxes.append(Tax(label=" ".join(tokens) or None, rate=rate, taxable_amount=None, amount=amount))
+        taxes.append(
+            Tax(
+                label=_normalize_tax_label(" ".join(tokens) or None),
+                rate=rate,
+                taxable_amount=None,
+                amount=amount,
+            )
+        )
     return taxes
+
+
+def _normalize_tax_label(label: str | None) -> str | None:
+    value = re.sub(r"\s+", " ", (label or "").strip())
+    if not value:
+        return None
+    # Portuguese invoices use prefixes such as "PT IVA*" and descriptions such
+    # as "IVA Reduzido" for the same tax. Keep the export label predictable.
+    value = re.sub(r"^[A-Z]{2}\s+", "", value)
+    if "iva" in value.casefold():
+        return "IVA"
+    return value.rstrip("*").strip() or None
+
+
+def _tax_cell(tax: dict[str, str | None]) -> str:
+    label = _normalize_tax_label(tax.get("label")) or "Imposto"
+    rate = f" {tax['rate']}%" if tax.get("rate") else ""
+    amount = f": {tax['amount']}" if tax.get("amount") else ""
+    return f"{label}{rate}{amount}"
 
 
 def _import_extra_fields(value: str | None) -> list[ExtraField]:
@@ -292,18 +321,7 @@ def to_row(record: InvoiceRecord) -> dict[str, str]:
         "ordem_compra": invoice.get("purchase_order"),
         "observacoes": invoice.get("notes"),
     }
-    raw["impostos"] = "; ".join(
-        " ".join(
-            part
-            for part in (
-                tax.get("label"),
-                f"{tax.get('rate')}%" if tax.get("rate") else None,
-                tax.get("amount"),
-            )
-            if part
-        )
-        for tax in invoice["taxes"]
-    )
+    raw["impostos"] = "; ".join(_tax_cell(tax) for tax in invoice["taxes"])
     raw["outros_detalhes"] = "; ".join(
         f"{field['label']}: {field['value']}" for field in invoice["extra_fields"]
     )

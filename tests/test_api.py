@@ -11,7 +11,7 @@ from pydantic import SecretStr
 from app.config import Settings
 from app.extractor import ExtractionFailed
 from app.main import create_app
-from app.models import ExtraField
+from app.models import ExtraField, Tax
 
 
 @pytest.fixture
@@ -380,6 +380,10 @@ def test_items_are_removed_but_tax_and_extra_details_are_kept(client, fake, pdf)
     fake.result.invoice.items[0].tax_amount = "2.00"
     fake.result.invoice.items[0].net_amount = "9.00"
     fake.result.invoice.extra_fields = [ExtraField(label="ATCUD", value="ABC-123")]
+    fake.result.invoice.taxes = [
+        Tax(label="PT IVA*", rate="6", taxable_amount="12.83", amount="0.77"),
+        Tax(label="IVA Reduzido", rate="23", taxable_amount="0.83", amount="0.19"),
+    ]
     upload(client, pdf)
     rows = list(
         csv.DictReader(
@@ -387,7 +391,7 @@ def test_items_are_removed_but_tax_and_extra_details_are_kept(client, fake, pdf)
         )
     )
     assert "items" not in rows[0]
-    assert rows[0]["impostos"] == "IVA 23% 23.00"
+    assert rows[0]["impostos"] == "IVA 6%: 0.77; IVA 23%: 0.19"
     assert rows[0]["outros_detalhes"] == "ATCUD: ABC-123"
 
 
