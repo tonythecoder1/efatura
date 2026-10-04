@@ -80,7 +80,7 @@ def test_upload_roundtrip(client, fake, pdf, language, name, currency, total):
         "outros_detalhes",
     }
     assert "items" not in rows[0]
-    assert "gpt-6-luna" not in exported.text
+    assert "gpt-6.1-sol" not in exported.text
 
 
 def test_same_pdf_is_not_analyzed_or_saved_twice(client, fake, pdf):

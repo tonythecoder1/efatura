@@ -20,7 +20,7 @@ services:
       - key: FRONTEND_ORIGINS
         sync: false
       - key: OPENAI_MODEL
-        value: gpt-6-luna
+        value: gpt-6.1-sol
       - key: CSV_PATH
         value: data/faturas.csv
       - key: MAX_UPLOAD_MB

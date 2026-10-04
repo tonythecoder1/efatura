@@ -26,7 +26,7 @@ def test_actual_sdk_serializes_pdf_and_parses_schema(monkeypatch, pdf, invoice):
                 "id": "resp_test",
                 "object": "response",
                 "created_at": 1,
-                "model": "gpt-6-luna",
+                "model": "gpt-6.1-sol",
                 "status": "completed",
                 "output": [
                     {
@@ -65,7 +65,7 @@ def test_refusal_is_reported(monkeypatch, pdf):
                 "id": "resp_test",
                 "object": "response",
                 "created_at": 1,
-                "model": "gpt-6-luna",
+                "model": "gpt-6.1-sol",
                 "status": "completed",
                 "output": [
                     {

@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     openai_api_key: SecretStr = SecretStr("")
-    openai_model: str = "gpt-6-luna"
+    openai_model: str = "gpt-6.1-sol"
     api_key: SecretStr = SecretStr("")
     csv_path: Path = Path("data/faturas.csv")
     max_upload_mb: int = Field(default=20, ge=1, le=40)
