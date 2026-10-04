@@ -34,7 +34,6 @@ services:
     name: efatura-frontend
     runtime: static
     plan: free
-    region: oregon
     branch: main
     rootDir: frontend
     buildCommand: npm ci && npm run build
