@@ -92,6 +92,21 @@ def test_same_pdf_is_not_analyzed_or_saved_twice(client, fake, pdf):
     assert fake.calls == 1
 
 
+def test_reexported_pdf_with_same_invoice_identity_is_not_added_twice(client, fake, pdf):
+    first = upload(client, pdf, "original.pdf")
+    second = upload(client, make_pdf(pages=2), "reexported.pdf")
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json()["duplicate"] is True
+    assert second.json()["record"] == first.json()["record"]
+    rows = list(
+        csv.DictReader(io.StringIO(client.get("/v1/invoices.csv").content.decode("utf-8-sig")), delimiter=";")
+    )
+    assert len(rows) == 1
+    assert fake.calls == 2
+
+
 @pytest.mark.parametrize(
     "data,name,status",
     [
@@ -245,6 +260,13 @@ def test_import_generated_csv_merges_only_new_rows(client, fake, pdf):
 
 def test_batch_upload_combined_mode_processes_two_pdfs(client, fake, pdf):
     second_pdf = make_pdf(pages=2)
+    original_extract = fake.extract
+
+    def extract_distinct_invoice(data):
+        fake.result.invoice.invoice_number = f"FT 2026/00{fake.calls + 1}"
+        return original_extract(data)
+
+    fake.extract = extract_distinct_invoice
     response = client.post(
         "/v1/invoices/batch",
         data={"mode": "combined"},

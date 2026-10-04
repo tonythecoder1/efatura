@@ -27,7 +27,8 @@ def test_concurrent_workers_keep_all_rows_and_deduplicate(tmp_path, invoice):
     path = tmp_path / "faturas.csv"
 
     def save(number):
-        return CsvStore(path).save(record(invoice, number))
+        distinct_invoice = invoice.model_copy(update={"invoice_number": f"FT 2026/{number:03}"})
+        return CsvStore(path).save(record(distinct_invoice, number))
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(save, list(range(12)) * 2))
@@ -48,7 +49,8 @@ def test_failed_atomic_replace_keeps_previous_csv(tmp_path, invoice, monkeypatch
 
     monkeypatch.setattr("app.storage.os.replace", fail)
     with pytest.raises(OSError):
-        store.save(record(invoice, 2))
+        changed_invoice = invoice.model_copy(update={"invoice_number": "FT 2026/002"})
+        store.save(record(changed_invoice, 2))
     assert store.export() == original
     assert not list(tmp_path.glob("*.tmp"))
 
@@ -64,7 +66,8 @@ def test_index_failure_rolls_back_csv_and_index(tmp_path, invoice, monkeypatch):
 
     monkeypatch.setattr(store, "_write_index", fail)
     with pytest.raises(OSError):
-        store.save(record(invoice, 2))
+        changed_invoice = invoice.model_copy(update={"invoice_number": "FT 2026/002"})
+        store.save(record(changed_invoice, 2))
     assert store.path.read_bytes() == original_csv
     assert store.index_path.read_bytes() == original_index
     assert store.find("1") is not None
@@ -140,3 +143,32 @@ def test_pdf_matching_an_imported_row_is_not_added_again(tmp_path, invoice):
 
     assert duplicate is True
     assert len(list(csv.DictReader(io.StringIO(store.export().decode("utf-8-sig")), delimiter=";"))) == 1
+
+
+def test_different_pdf_digests_with_the_same_invoice_identity_are_deduplicated(tmp_path, invoice):
+    store = CsvStore(tmp_path / "faturas.csv")
+    first = record(invoice, "first-pdf-digest")
+    second = record(invoice, "reexported-pdf-digest")
+    store.save(first)
+
+    saved, duplicate = store.save(second)
+
+    assert duplicate is True
+    assert saved == first
+    assert len(list(csv.DictReader(io.StringIO(store.export().decode("utf-8-sig")), delimiter=";"))) == 1
+
+
+def test_startup_removes_existing_semantic_duplicates(tmp_path, invoice):
+    path = tmp_path / "faturas.csv"
+    store = CsvStore(path)
+    first = record(invoice, "first-pdf-digest")
+    second = record(invoice, "reexported-pdf-digest")
+    store._write_csv_rows([to_row(first), to_row(second)])
+    store._write_index({first.sha256: first, second.sha256: second})
+
+    migrated = CsvStore(path)
+
+    rows = list(csv.DictReader(io.StringIO(migrated.export().decode("utf-8-sig")), delimiter=";"))
+    assert len(rows) == 1
+    assert migrated.find(first.sha256) == first
+    assert migrated.find(second.sha256) is None

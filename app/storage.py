@@ -141,6 +141,38 @@ def row_fingerprint(row: dict[str, str]) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def invoice_identities(record: InvoiceRecord) -> set[str]:
+    """Return stable commercial identities that survive PDF re-exports.
+
+    The PDF bytes and the extracted prose can change when the same document is
+    downloaded or rendered again. A supplier plus invoice number is the strongest
+    identity; the fallback is deliberately stricter for documents without a number.
+    """
+    invoice = record.invoice
+
+    def token(value: object) -> str:
+        return re.sub(r"[^\w]+", "", str(value or "").casefold(), flags=re.UNICODE)
+
+    number = token(invoice.invoice_number)
+    supplier_tax_id = token(invoice.supplier.tax_id)
+    supplier_name = token(invoice.supplier.name)
+    identities: set[str] = set()
+    if number:
+        if supplier_tax_id:
+            identities.add(f"number:{supplier_tax_id}:{number}")
+        if supplier_name:
+            identities.add(f"number-name:{supplier_name}:{number}")
+
+    date_value = invoice.issue_date.isoformat() if invoice.issue_date else ""
+    total = token(invoice.total)
+    currency = token(invoice.currency)
+    customer = token(invoice.customer.tax_id or invoice.customer.name)
+    supplier = supplier_tax_id or supplier_name
+    if not number and supplier and date_value and total and currency and customer:
+        identities.add(f"fallback:{supplier}:{date_value}:{currency}:{total}:{customer}")
+    return identities
+
+
 def _clean_import_value(value: str | None) -> str | None:
     return value.strip() if value and value.strip() else None
 
@@ -287,6 +319,7 @@ class CsvStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = FileLock(str(path) + ".lock", timeout=30)
         self._migrate_legacy_csv()
+        self._deduplicate_current_records()
         if self.index_path.exists():
             self.index_path.chmod(0o600)
 
@@ -372,6 +405,40 @@ class CsvStore:
         payload = json.loads(self.index_path.read_text(encoding="utf-8"))
         return {digest: InvoiceRecord.model_validate(value) for digest, value in payload.items()}
 
+    def _deduplicate_current_records(self) -> None:
+        """Remove semantic duplicates already present from older deployments."""
+        if not self.path.exists() or not self.index_path.exists():
+            return
+        with self.lock:
+            rows = self._read()
+            index = self._read_index()
+            if len(rows) != len(index):
+                return
+            kept_rows: list[dict[str, str]] = []
+            kept_index: dict[str, InvoiceRecord] = {}
+            known_fingerprints: set[str] = set()
+            known_identities: set[str] = set()
+            for row, (digest, record) in zip(rows, index.items()):
+                fingerprint = row_fingerprint(row)
+                identities = invoice_identities(record)
+                if fingerprint in known_fingerprints or identities & known_identities:
+                    continue
+                kept_rows.append(row)
+                kept_index[digest] = record
+                known_fingerprints.add(fingerprint)
+                known_identities.update(identities)
+            if len(kept_rows) == len(rows):
+                return
+            previous_csv = self.path.read_bytes()
+            previous_index = self.index_path.read_bytes()
+            try:
+                self._write_csv_rows(kept_rows)
+                self._write_index(kept_index)
+            except Exception:
+                self._restore_file(self.path, previous_csv)
+                self._restore_file(self.index_path, previous_index)
+                raise
+
     def _write_index(self, index: dict[str, InvoiceRecord]) -> None:
         temporary = self.index_path.with_name("." + self.index_path.name + ".tmp")
         try:
@@ -419,20 +486,27 @@ class CsvStore:
             if len(rows) != len(index):
                 raise ValueError("O CSV e o índice de deduplicação estão inconsistentes.")
             known = {row_fingerprint(row) for row in rows}
+            known_identities = set()
+            for record in index.values():
+                known_identities.update(invoice_identities(record))
             added_rows = []
             added_records = {}
             duplicates = 0
             for row in imported_rows:
                 fingerprint = row_fingerprint(row)
-                if fingerprint in known:
+                digest = f"csv:{fingerprint}"
+                candidate = record_from_csv_row(row, digest)
+                identities = invoice_identities(candidate)
+                if fingerprint in known or identities & known_identities:
                     duplicates += 1
                     continue
-                digest = f"csv:{fingerprint}"
                 while digest in index or digest in added_records:
                     digest = f"csv:{hashlib.sha256(digest.encode('utf-8')).hexdigest()}"
                 known.add(fingerprint)
+                known_identities.update(identities)
                 added_rows.append(row)
-                added_records[digest] = record_from_csv_row(row, digest)
+                candidate.sha256 = digest
+                added_records[digest] = candidate
 
             previous_csv = self.path.read_bytes() if self.path.exists() else None
             previous_index = self.index_path.read_bytes() if self.index_path.exists() else None
@@ -487,7 +561,10 @@ class CsvStore:
                 return index[record.sha256], True
             new_row = to_row(record)
             new_fingerprint = row_fingerprint(new_row)
+            new_identities = invoice_identities(record)
             for row, indexed_record in zip(rows, index.values()):
+                if new_identities & invoice_identities(indexed_record):
+                    return indexed_record, True
                 if indexed_record.model == "csv-import" and row_fingerprint(row) == new_fingerprint:
                     return indexed_record, True
             previous_csv = self.path.read_bytes() if self.path.exists() else None
