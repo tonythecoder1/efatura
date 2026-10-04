@@ -76,11 +76,10 @@ class Extraction(ExtractionModel):
     invoice_count: int = Field(
         ge=0,
         description=(
-            "Number of distinct billing documents. Count pages, payment receipts, "
-            "tickets, booking confirmations, terms pages and duplicate copies for "
-            "the same transaction as one document. Reservation, order, booking, "
-            "payment and reference numbers are not separate invoice numbers; count "
-            "separately only clearly different billing documents."
+            "Number of independent commercial transactions after grouping related "
+            "invoice or receipt sections. Pages, payment receipts, tickets, booking "
+            "confirmations, terms pages and component charges for the same reservation "
+            "count as one transaction; count separately only unrelated transactions."
         ),
     )
     invoice: Invoice | None

@@ -150,7 +150,10 @@ def create_app(settings: Settings | None = None, extractor=None) -> FastAPI:
         if not result.is_invoice or result.invoice_count == 0:
             raise HTTPException(status_code=422, detail="Não foi identificada uma fatura neste PDF.")
         if result.invoice_count != 1:
-            raise HTTPException(status_code=422, detail="Envia apenas uma fatura por PDF.")
+            raise HTTPException(
+                status_code=422,
+                detail="O PDF contém transações independentes. Envia cada transação num PDF separado.",
+            )
         if result.invoice is None:
             raise HTTPException(status_code=502, detail="O serviço não devolveu os dados da fatura.")
         warnings = review_warnings(result.invoice, result.warnings)
@@ -176,7 +179,7 @@ def create_app(settings: Settings | None = None, extractor=None) -> FastAPI:
         responses={200: {"description": "PDF já registado"}},
     )
     def upload_invoice(response: Response, file: Annotated[UploadFile, File()]):
-        """Envia uma fatura (uma ou várias páginas). Repete o PDF sem duplicar o CSV."""
+        """Envia uma transação (uma ou várias páginas). Repete o PDF sem duplicar o CSV."""
         try:
             if not file.filename or not file.filename.lower().endswith(".pdf"):
                 raise HTTPException(status_code=415, detail="Apenas são aceites ficheiros .pdf.")

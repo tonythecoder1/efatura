@@ -154,15 +154,17 @@ O corpo multipart completo também é limitado a `MAX_UPLOAD_MB` + 1 MiB. O uplo
 
 ## Comportamento e limites
 
-- Uma fatura por PDF; várias páginas são aceites. PDFs com várias faturas distintas
-  são rejeitados para evitar juntar dados de documentos diferentes.
+- Uma transação por PDF; várias páginas e vários cartões da mesma reserva são aceites.
+  Os valores dos cartões relacionados são somados. PDFs com transações independentes
+  são rejeitados para evitar juntar dados diferentes.
 - PDFs protegidos por palavra-passe, danificados, vazios ou acima dos limites são
   rejeitados antes da chamada à IA. A extensão e a estrutura do ficheiro são verificadas.
 - PDFs com o mesmo conteúdo binário não duplicam o CSV, mesmo com outro nome.
   Cópias reexportadas com bytes diferentes também são deduplicadas quando mantêm
   o número da fatura e o fornecedor; documentos sem número usam uma combinação
   mais estrita de fornecedor, data, moeda, total e cliente.
-- Os lotes aceitam entre 1 e 10 PDFs; cada PDF continua a representar uma única fatura.
+- Os lotes aceitam entre 1 e 10 PDFs; cada PDF representa uma transação, podendo
+  agrupar cartões de fatura da mesma reserva.
 - A importação aceita apenas CSVs com o cabeçalho gerado pela aplicação e ignora linhas
   comerciais que já existam no ficheiro atual.
 - CSVs criados por uma versão anterior são migrados automaticamente na próxima
