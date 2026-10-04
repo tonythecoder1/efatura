@@ -33,7 +33,6 @@ services:
   - type: web
     name: efatura-frontend
     runtime: static
-    plan: free
     branch: main
     rootDir: frontend
     buildCommand: npm ci && npm run build
