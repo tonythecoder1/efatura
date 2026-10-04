@@ -43,9 +43,10 @@ npm run dev
 ```
 
 `VITE_API_URL` define a URL pública da API e, por defeito, aponta para
-`http://127.0.0.1:8000`. O frontend permite importar um CSV já criado, selecionar até
-10 PDFs, escolher entre um CSV combinado ou um CSV por fatura e mostra os limites
-publicados por `/health`. A chave da OpenAI permanece no backend.
+`http://127.0.0.1:8000`. Com PostgreSQL configurado, o frontend apresenta login,
+categorias, centros de custo, uso do período gratuito e os planos Stripe. Permite
+importar um CSV já criado, selecionar até 10 PDFs e escolher entre um CSV combinado
+ou um CSV por transação. A chave da OpenAI permanece no backend.
 
 As dependências e o ambiente `.venv` foram instalados durante a implementação.
 `requirements.lock` regista as versões verificadas; `pyproject.toml` define os
@@ -73,6 +74,11 @@ curl --fail-with-body -X POST http://127.0.0.1:8000/v1/invoices/batch \
 
 # Estado do serviço e presença de configuração de IA
 curl http://127.0.0.1:8000/health
+
+# Criar conta e iniciar sessão
+curl --fail-with-body -X POST http://127.0.0.1:8000/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"tu@example.com","password":"uma-password-segura"}'
 ```
 
 Se definires `API_KEY`, acrescenta `-H 'X-API-Key: a-tua-chave-local'` aos pedidos de
@@ -85,6 +91,10 @@ de `OPENAI_API_KEY`. O endpoint de saúde e a documentação continuam públicos
 | `POST /v1/invoices/import-csv` | Importa o CSV da aplicação e devolve linhas adicionadas e repetidas |
 | `POST /v1/invoices/batch` | Processa 1–10 PDFs em modo `combined` ou `separate` |
 | `GET /v1/invoices.csv` | CSV com todos os registos; só cabeçalho quando vazio |
+| `POST /v1/auth/register` / `POST /v1/auth/login` | Criar conta e obter sessão |
+| `GET /v1/billing/status` | Uso gratuito e plano ativo |
+| `POST /v1/billing/checkout` | Criar checkout semanal ou mensal Stripe |
+| `POST /v1/billing/webhook` | Atualizar a subscrição a partir do Stripe |
 | `GET /health` | Estado, formatos aceites, limite do PDF e indicação de chave configurada |
 
 A resposta do upload contém `duplicate` e `record`, incluindo avisos para revisão.
@@ -100,6 +110,7 @@ ou recibo e contém apenas os campos comerciais habituais:
 - Nome, NIF/VAT, morada e email do fornecedor e cliente.
 - Moeda, subtotal, descontos, impostos, total e montante em dívida.
 - Método de pagamento, IBAN, encomenda e observações.
+- `categoria` e `centro_custo` para organização e contabilidade interna.
 - `impostos`: discriminação dos impostos em texto legível.
 - `outros_detalhes`: ATCUD, referências e outros dados comerciais identificados.
 
@@ -148,6 +159,14 @@ fórmulas recebem um apóstrofo, incluindo montantes negativos.
 | `MAX_PAGES` | `30` | Número máximo de páginas por PDF |
 | `OPENAI_TIMEOUT_SECONDS` | `120` | Timeout configurado no cliente HTTP do fornecedor |
 | `FRONTEND_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Origens permitidas pelo CORS, separadas por vírgulas |
+| `DATABASE_URL` | vazio | PostgreSQL persistente; injetado pelo Blueprint do Render |
+| `AUTH_SECRET` | vazio | Segredo para assinar sessões de login |
+| `FREE_INVOICE_LIMIT` | `10` | Faturas gratuitas por conta |
+| `STRIPE_SECRET_KEY` | vazio | Chave privada do Stripe |
+| `STRIPE_WEBHOOK_SECRET` | vazio | Assinatura do webhook Stripe |
+| `STRIPE_MONTHLY_PRICE_ID` | vazio | Preço Stripe do plano mensal |
+| `STRIPE_WEEKLY_PRICE_ID` | vazio | Preço Stripe do plano semanal |
+| `APP_BASE_URL` | `http://localhost:5173` | URL para retorno do checkout |
 
 O corpo multipart completo também é limitado a `MAX_UPLOAD_MB` + 1 MiB. O upload
 é temporariamente colocado em memória/disco e eliminado no final do pedido.
@@ -175,8 +194,9 @@ O corpo multipart completo também é limitado a `MAX_UPLOAD_MB` + 1 MiB. O uplo
   podem ser guardadas com `needs_review=true` para revisão posterior.
 - A soma subtotal + impostos e a soma dos impostos discriminados são verificadas
   com `Decimal`. Diferenças acima de 0,02 geram avisos; não corrigimos a fatura.
-- O CSV é reescrito a cada inserção. Adequado a pequenos volumes numa única máquina
-  com disco local; para grandes volumes, usar base de dados e exportação CSV.
+- Com `DATABASE_URL`, os utilizadores, subscrições, categorias e faturas ficam numa
+  base PostgreSQL persistente. Sem ela, a aplicação mantém o modo CSV local para
+  desenvolvimento e testes.
 - O serviço arranca sem chave, mas o upload devolve `503` até a chave ser configurada.
   Testes não fazem chamadas pagas. Não existe um modo de extração local nesta versão.
 

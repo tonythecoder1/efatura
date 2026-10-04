@@ -78,6 +78,8 @@ def test_upload_roundtrip(client, fake, pdf, language, name, currency, total):
         "observacoes",
         "impostos",
         "outros_detalhes",
+        "categoria",
+        "centro_custo",
     }
     assert "items" not in rows[0]
     assert "gpt-6.1-sol" not in exported.text
@@ -230,6 +232,9 @@ def test_health_publishes_upload_contract(settings, fake):
         "accepted_formats": ["pdf"],
         "max_upload_mb": 20,
         "max_pages": 30,
+        "persistent_storage": False,
+        "auth_enabled": False,
+        "free_invoice_limit": 10,
     }
 
 

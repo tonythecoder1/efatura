@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     max_pages: int = Field(default=30, ge=1, le=200)
     openai_timeout_seconds: float = Field(default=120, gt=0)
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    database_url: str = ""
+    auth_secret: SecretStr = SecretStr("")
+    auth_token_days: int = Field(default=7, ge=1, le=90)
+    free_invoice_limit: int = Field(default=10, ge=0, le=1000)
+    stripe_secret_key: SecretStr = SecretStr("")
+    stripe_webhook_secret: SecretStr = SecretStr("")
+    stripe_monthly_price_id: str = ""
+    stripe_weekly_price_id: str = ""
+    app_base_url: str = "http://localhost:5173"
 
     @property
     def max_upload_bytes(self) -> int:

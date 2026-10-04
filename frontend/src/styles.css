@@ -135,6 +135,74 @@ a:focus-visible {
   text-transform: uppercase;
 }
 
+.account-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.auth-card {
+  max-width: 520px;
+  margin: 4rem auto;
+}
+
+.auth-card h1 {
+  margin: 12px 0;
+  font-family: "Libre Baskerville", Georgia, serif;
+  font-weight: 400;
+}
+
+.auth-card label,
+.classification-fields label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.auth-card input,
+.classification-fields input,
+.classification-fields select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 11px 12px;
+}
+
+.auth-card label + label { margin-top: 15px; }
+.auth-card .primary-button { margin-top: 20px; }
+
+.classification-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 24px 0;
+}
+
+.billing-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--sage-pale);
+  color: var(--forest);
+  font-size: 0.86rem;
+}
+
+.billing-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .main-content {
   flex: 1;
   padding: 84px 0 108px;
@@ -1013,6 +1081,10 @@ tbody td {
     display: none;
   }
 
+  .account-menu {
+    font-size: 0.72rem;
+  }
+
   .company-logo {
     width: 102px;
     height: 37px;
@@ -1041,6 +1113,15 @@ tbody td {
   .upload-card,
   .result-card {
     padding: 22px 18px;
+  }
+
+  .classification-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-panel {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .dropzone {

@@ -43,7 +43,9 @@ type BatchUploadResult = {
   results: BatchFileResult[];
 };
 type CsvImportResult = { imported: number; duplicates: number; total: number };
-type UploadLimits = { accepted_formats: string[]; max_upload_mb: number; max_pages: number };
+type UploadLimits = { accepted_formats: string[]; max_upload_mb: number; max_pages: number; auth_enabled?: boolean; free_invoice_limit?: number };
+type User = { id: string; email: string; plan: string; subscription_status: string; usage_count: number };
+type BillingStatus = { plan: string; subscription_status: string; used: number; free_limit: number; remaining_free: number; subscribed: boolean };
 type AppStatus = "idle" | "selected" | "importing" | "processing" | "success" | "error";
 type ExportMode = "combined" | "separate";
 
@@ -88,6 +90,10 @@ async function responseDetail(response: Response) {
     return ((await response.json()) as { detail?: unknown }).detail;
   }
   return await response.text();
+}
+
+function apiHeaders(token: string | null): HeadersInit {
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function DownloadIcon() {
@@ -160,6 +166,17 @@ function App() {
   const [downloadError, setDownloadError] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [apiUnavailable, setApiUnavailable] = useState(false);
+  const [token, setToken] = useState(() => window.localStorage.getItem("efatura_token"));
+  const [user, setUser] = useState<User | null>(null);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [category, setCategory] = useState("");
+  const [costCenter, setCostCenter] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
@@ -175,6 +192,48 @@ function App() {
       });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    const headers = apiHeaders(token);
+    Promise.all([
+      fetch(`${API_URL}/v1/auth/me`, { headers }),
+      fetch(`${API_URL}/v1/billing/status`, { headers }),
+      fetch(`${API_URL}/v1/categories`, { headers }),
+    ]).then(async ([meResponse, billingResponse, categoriesResponse]) => {
+      if (!meResponse.ok) throw new Error("session");
+      const me = (await meResponse.json()) as { user: User };
+      setUser(me.user);
+      if (billingResponse.ok) setBilling((await billingResponse.json()) as BillingStatus);
+      if (categoriesResponse.ok) setCategories((await categoriesResponse.json()).categories as string[]);
+    }).catch(() => {
+      window.localStorage.removeItem("efatura_token");
+      setToken(null);
+      setUser(null);
+    });
+  }, [token]);
+
+  const authenticate = async () => {
+    setAuthBusy(true); setAuthError("");
+    try {
+      const response = await fetch(`${API_URL}/v1/auth/${authMode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!response.ok) throw new Error(formatError(await responseDetail(response), response.status));
+      const data = (await response.json()) as { token: string; user: User };
+      window.localStorage.setItem("efatura_token", data.token);
+      setToken(data.token); setUser(data.user); setPassword("");
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : "Não foi possível iniciar sessão.");
+    } finally { setAuthBusy(false); }
+  };
+
+  const logout = () => {
+    window.localStorage.removeItem("efatura_token");
+    setToken(null); setUser(null); setBilling(null);
+  };
 
   const resetResults = () => { setBatchResult(null); setImportResult(null); setDownloadError(""); };
   const clearFiles = () => {
@@ -214,7 +273,7 @@ function App() {
     setStatus("importing"); setError("");
     const formData = new FormData(); formData.append("csv_file", csvFile);
     try {
-      const response = await fetch(`${API_URL}/v1/invoices/import-csv`, { method: "POST", body: formData });
+      const response = await fetch(`${API_URL}/v1/invoices/import-csv`, { method: "POST", body: formData, headers: apiHeaders(token) });
       if (!response.ok) throw new Error(formatError(await responseDetail(response), response.status));
       setImportResult((await response.json()) as CsvImportResult); setCsvFile(null); setStatus(files.length ? "selected" : "success");
     } catch (caught) { setStatus("error"); setError(caught instanceof Error ? caught.message : "Não foi possível importar o CSV."); }
@@ -224,17 +283,23 @@ function App() {
     if (!files.length || status === "processing" || status === "importing") return;
     setStatus("processing"); setError(""); resetResults();
     const formData = new FormData(); files.forEach((file) => formData.append("files", file)); formData.append("mode", mode);
+    if (category) formData.append("category", category);
+    if (costCenter) formData.append("cost_center", costCenter);
     try {
-      const response = await fetch(`${API_URL}/v1/invoices/batch`, { method: "POST", body: formData });
+      const response = await fetch(`${API_URL}/v1/invoices/batch`, { method: "POST", body: formData, headers: apiHeaders(token) });
       if (!response.ok) throw new Error(formatError(await responseDetail(response), response.status));
       setBatchResult((await response.json()) as BatchUploadResult); setStatus("success");
+      if (token) {
+        const billingResponse = await fetch(`${API_URL}/v1/billing/status`, { headers: apiHeaders(token) });
+        if (billingResponse.ok) setBilling((await billingResponse.json()) as BillingStatus);
+      }
     } catch (caught) { setStatus("error"); setError(caught instanceof Error ? caught.message : "Não foi possível contactar a API."); }
   };
 
   const downloadCombinedCsv = async () => {
     setDownloadError("");
     try {
-      const response = await fetch(`${API_URL}/v1/invoices.csv`);
+      const response = await fetch(`${API_URL}/v1/invoices.csv`, { headers: apiHeaders(token) });
       if (!response.ok) throw new Error(formatError(await responseDetail(response), response.status));
       downloadBlob(await response.blob(), "faturas.csv");
     } catch (caught) { setDownloadError(caught instanceof Error ? caught.message : "Não foi possível descarregar o CSV."); }
@@ -247,9 +312,34 @@ function App() {
   const formatText = limits?.accepted_formats.map((format) => format.toUpperCase()).join(", ") || "PDF";
   const actionLabel = files.length === 1 ? "Processar fatura" : `Processar ${files.length} faturas`;
 
+  const checkout = async (interval: "monthly" | "weekly") => {
+    try {
+      const response = await fetch(`${API_URL}/v1/billing/checkout`, {
+        method: "POST", headers: { ...apiHeaders(token), "Content-Type": "application/json" },
+        body: JSON.stringify({ interval }),
+      });
+      if (!response.ok) throw new Error(formatError(await responseDetail(response), response.status));
+      const data = (await response.json()) as { url: string };
+      window.location.href = data.url;
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Não foi possível abrir o pagamento."); }
+  };
+
+  if (limits?.auth_enabled && !token) {
+    return (
+      <div className="app-shell"><header className="site-header"><span className="brand-name">Faturas</span><span className="header-note">Leitura documental</span></header>
+        <main className="main-content"><section className="upload-card auth-card"><p className="section-kicker">ACESSO À CONTA</p><h1>{authMode === "login" ? "Inicie sessão" : "Crie a sua conta"}</h1><p className="hero-copy">As primeiras 10 faturas são gratuitas.</p>
+          <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></label>
+          <label>Palavra-passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={authMode === "login" ? "current-password" : "new-password"} /></label>
+          {authError && <div className="alert error-alert" role="alert">{authError}</div>}
+          <button type="button" className="primary-button" onClick={authenticate} disabled={authBusy}>{authBusy ? "A validar…" : authMode === "login" ? "Entrar" : "Criar conta"}</button>
+          <button type="button" className="text-button" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }}>{authMode === "login" ? "Ainda não tenho conta" : "Já tenho conta"}</button>
+        </section></main></div>
+    );
+  }
+
   return (
     <div className="app-shell">
-      <header className="site-header"><a className="brand" href="/" aria-label="Faturas, início"><img className="company-logo" src="/assets/savannah-logo.png" alt="Savanha" /><span className="brand-divider" aria-hidden="true" /><span className="brand-name">Faturas</span><span className="brand-by">by savanha</span></a><span className="header-note">Leitura documental</span></header>
+      <header className="site-header"><a className="brand" href="/" aria-label="Faturas, início"><img className="company-logo" src="/assets/savannah-logo.png" alt="Savanha" /><span className="brand-divider" aria-hidden="true" /><span className="brand-name">Faturas</span><span className="brand-by">by savanha</span></a><span className="header-note">Leitura documental</span>{user && <div className="account-menu"><span>{user.email}</span><button type="button" className="text-button" onClick={logout}>Sair</button></div>}</header>
       <main className="main-content">
         <section className="hero" aria-labelledby="page-title"><p className="eyebrow">ORGANIZAÇÃO SEM RUÍDO</p><h1 id="page-title">Das suas faturas para uma folha de cálculo.</h1><p className="hero-copy">Carregue uma ou várias faturas e obtenha os dados organizados, prontos a exportar.</p></section>
         <section className="workspace" aria-label="Processar faturas">
@@ -265,10 +355,12 @@ function App() {
             <div className="csv-import"><div className="csv-import-copy"><p className="section-kicker">BASE EXISTENTE</p><strong>Já tem um CSV da aplicação?</strong><span>Importe-o para juntar novas faturas sem repetir linhas.</span></div><input ref={csvInputRef} className="visually-hidden" type="file" accept="text/csv,.csv" onChange={onCsvInputChange} aria-label="Selecionar CSV existente" /><button type="button" className="secondary-button" onClick={() => csvInputRef.current?.click()} disabled={status === "processing" || status === "importing"}>Escolher CSV</button></div>
             {csvFile && <div className="csv-selected"><span className="file-type csv-type" aria-hidden="true">CSV</span><div className="file-meta"><strong>{csvFile.name}</strong><span>{formatFileSize(csvFile.size)}</span></div><button type="button" className="secondary-button" onClick={importCsv} disabled={status === "importing"}>{status === "importing" ? "A importar…" : "Adicionar ao ficheiro"}</button></div>}
             {importResult && <div className="import-summary" role="status"><span className="success-dot" aria-hidden="true" />{importResult.imported} {importResult.imported === 1 ? "linha adicionada" : "linhas adicionadas"}; {importResult.duplicates} repetidas ignoradas.</div>}
+            <div className="classification-fields"><label>Categoria<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Sem categoria</option>{categories.map((value) => <option key={value} value={value}>{value}</option>)}</select></label><label>Centro de custo<input value={costCenter} onChange={(event) => setCostCenter(event.target.value)} placeholder="Ex.: Marketing" /></label></div>
             <fieldset className="mode-selector"><legend>Como pretende exportar?</legend><label className={`mode-option${mode === "combined" ? " is-selected" : ""}`}><input type="radio" name="export-mode" value="combined" checked={mode === "combined"} onChange={() => setMode("combined")} /><span><strong>Um CSV combinado</strong><small>Todas as faturas ficam no ficheiro acumulado.</small></span></label><label className={`mode-option${mode === "separate" ? " is-selected" : ""}`}><input type="radio" name="export-mode" value="separate" checked={mode === "separate"} onChange={() => setMode("separate")} /><span><strong>Um CSV por fatura</strong><small>Recebe um ficheiro independente para cada documento.</small></span></label></fieldset>
+            {billing && <div className="billing-panel"><strong>{billing.subscribed ? `Plano ${billing.plan}` : `${billing.remaining_free} de ${billing.free_limit} faturas gratuitas restantes`}</strong>{!billing.subscribed && billing.remaining_free === 0 && <div className="billing-actions"><button type="button" className="secondary-button" onClick={() => checkout("monthly")}>Plano mensal</button><button type="button" className="secondary-button" onClick={() => checkout("weekly")}>Plano semanal</button></div>}</div>}
             {apiUnavailable && <p className="inline-note" role="status">Não foi possível ler os limites da API. O processamento continua sujeito às regras do backend.</p>}
             {error && <div className="alert error-alert" role="alert"><span className="alert-mark" aria-hidden="true">!</span><span>{error}</span></div>}
-            <button type="button" className="primary-button" onClick={processBatch} disabled={!files.length || status === "processing" || status === "importing"}>{status === "processing" ? "A processar faturas…" : actionLabel}<span aria-hidden="true">→</span></button>
+            <button type="button" className="primary-button" onClick={processBatch} disabled={!files.length || status === "processing" || status === "importing" || Boolean(billing && !billing.subscribed && billing.remaining_free === 0)}>{status === "processing" ? "A processar faturas…" : actionLabel}<span aria-hidden="true">→</span></button>
             {status === "processing" && <p className="processing-note" role="status" aria-live="polite">A análise pode demorar alguns instantes por documento.</p>}
           </div>
           <aside className="side-panel" aria-label="Como funciona"><p className="section-kicker">02 · RESULTADO</p><h2>Dados com contexto.</h2><p>Importe uma base existente, processe até 10 PDFs e escolha como quer receber os dados.</p><div className="side-rule" /><div className="side-detail"><span className="detail-dot" aria-hidden="true" /><span>Linhas repetidas são ignoradas</span></div><div className="side-detail"><span className="detail-dot" aria-hidden="true" /><span>Até 10 faturas por lote</span></div><div className="side-detail"><span className="detail-dot" aria-hidden="true" /><span>Português e inglês</span></div></aside>

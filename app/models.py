@@ -96,6 +96,8 @@ class InvoiceRecord(BaseModel):
     needs_review: bool
     warnings: list[str]
     invoice: Invoice
+    category: str | None = None
+    cost_center: str | None = None
 
 
 class UploadResult(BaseModel):
@@ -107,6 +109,33 @@ class CsvImportResult(BaseModel):
     imported: int
     duplicates: int
     total: int
+
+
+class AuthCredentials(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: dict[str, str | int]
+
+
+class BillingStatus(BaseModel):
+    plan: str
+    subscription_status: str
+    used: int
+    free_limit: int
+    remaining_free: int
+    subscribed: bool
+
+
+class CheckoutRequest(BaseModel):
+    interval: Literal["monthly", "weekly"]
+
+
+class CategoryList(BaseModel):
+    categories: list[str]
 
 
 class BatchFileResult(BaseModel):

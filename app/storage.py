@@ -41,6 +41,8 @@ FIELDS = [
     "observacoes",
     "impostos",
     "outros_detalhes",
+    "categoria",
+    "centro_custo",
 ]
 
 # Current CSV format before the Portuguese headers were introduced. Keep these
@@ -72,6 +74,8 @@ PREVIOUS_FIELDS = [
     "taxes",
     "other_details",
 ]
+
+PUBLIC_FIELDS_BEFORE_CATEGORIES = [field for field in FIELDS if field not in {"categoria", "centro_custo"}]
 
 OLDER_FIELDS = [field for field in PREVIOUS_FIELDS if field != "other_details"]
 
@@ -292,6 +296,8 @@ def record_from_csv_row(row: dict[str, str], digest: str) -> InvoiceRecord:
         needs_review=False,
         warnings=[],
         invoice=invoice,
+        category=_clean_import_value(row.get("categoria")),
+        cost_center=_clean_import_value(row.get("centro_custo")),
     )
 
 
@@ -320,6 +326,8 @@ def to_row(record: InvoiceRecord) -> dict[str, str]:
         "iban": invoice.get("iban"),
         "ordem_compra": invoice.get("purchase_order"),
         "observacoes": invoice.get("notes"),
+        "categoria": record.category,
+        "centro_custo": record.cost_center,
     }
     raw["impostos"] = "; ".join(_tax_cell(tax) for tax in invoice["taxes"])
     raw["outros_detalhes"] = "; ".join(
@@ -372,6 +380,19 @@ class CsvStore:
         with self.lock:
             with self.path.open(encoding="utf-8-sig", newline="") as file:
                 reader = csv.DictReader(file, delimiter=";")
+                if reader.fieldnames == PUBLIC_FIELDS_BEFORE_CATEGORIES:
+                    rows = list(reader)
+                    self._write_csv_rows(
+                        [
+                            {
+                                **row,
+                                "categoria": row.get("categoria", ""),
+                                "centro_custo": row.get("centro_custo", ""),
+                            }
+                            for row in rows
+                        ]
+                    )
+                    return
                 if reader.fieldnames not in (LEGACY_FIELDS, PREVIOUS_FIELDS, OLDER_FIELDS):
                     return
                 rows = list(reader)
@@ -502,7 +523,7 @@ class CsvStore:
                 raise ValueError("O CSV existente tem um formato incompatível.")
             return list(reader)
 
-    def import_csv(self, data: bytes) -> dict[str, int]:
+    def import_csv(self, data: bytes, user_id: str | None = None) -> dict[str, int]:
         try:
             text = data.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
@@ -562,7 +583,7 @@ class CsvStore:
             "total": len(rows) + len(added_rows),
         }
 
-    def find(self, digest: str) -> InvoiceRecord | None:
+    def find(self, digest: str, user_id: str | None = None) -> InvoiceRecord | None:
         with self.lock:
             rows = self._read()
             index = self._read_index()
@@ -588,7 +609,7 @@ class CsvStore:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
 
-    def save(self, record: InvoiceRecord) -> tuple[InvoiceRecord, bool]:
+    def save(self, record: InvoiceRecord, user_id: str | None = None) -> tuple[InvoiceRecord, bool]:
         with self.lock:
             rows = self._read()
             index = self._read_index()
@@ -617,7 +638,7 @@ class CsvStore:
                 raise
             return record, False
 
-    def export(self) -> bytes:
+    def export(self, user_id: str | None = None) -> bytes:
         with self.lock:
             if self.path.exists():
                 return self.path.read_bytes()
