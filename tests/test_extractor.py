@@ -18,6 +18,9 @@ def test_actual_sdk_serializes_pdf_and_parses_schema(monkeypatch, pdf, invoice):
         payload = json.loads(request.content)
         assert payload["store"] is False
         assert payload["text"]["format"]["strict"] is True
+        assert "payment receipt" in payload["instructions"]
+        assert "Reservation, order, booking" in payload["instructions"]
+        assert "return invoice_count=1" in payload["instructions"]
         attachment = payload["input"][0]["content"][0]
         assert base64.b64decode(attachment["file_data"].split(",", 1)[1]) == pdf
         return httpx.Response(

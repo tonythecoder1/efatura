@@ -67,8 +67,22 @@ class Invoice(ExtractionModel):
 
 
 class Extraction(ExtractionModel):
-    is_invoice: bool
-    invoice_count: int
+    is_invoice: bool = Field(
+        description=(
+            "True when the PDF contains one or more commercial billing documents, "
+            "including invoices, invoice-receipts, receipts or ticket-invoices."
+        )
+    )
+    invoice_count: int = Field(
+        ge=0,
+        description=(
+            "Number of distinct billing documents. Count pages, payment receipts, "
+            "tickets, booking confirmations, terms pages and duplicate copies for "
+            "the same transaction as one document. Reservation, order, booking, "
+            "payment and reference numbers are not separate invoice numbers; count "
+            "separately only clearly different billing documents."
+        ),
+    )
     invoice: Invoice | None
     warnings: list[str]
 
