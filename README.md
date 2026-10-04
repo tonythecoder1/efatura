@@ -141,7 +141,7 @@ fórmulas recebem um apóstrofo, incluindo montantes negativos.
 | Variável | Valor inicial | Função |
 |---|---|---|
 | `OPENAI_API_KEY` | vazio | Chave obrigatória para análise real |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | Modelo com entrada PDF/visão e Structured Outputs |
+| `OPENAI_MODEL` | `gpt-6-luna` | Modelo com entrada PDF/visão e Structured Outputs |
 | `API_KEY` | vazio | Autenticação opcional da API local |
 | `CSV_PATH` | `data/faturas.csv` | Caminho do CSV, relativo ao diretório de execução |
 | `MAX_UPLOAD_MB` | `20` | Limite do PDF (1 a 40 MiB) |
@@ -204,4 +204,4 @@ exemplo e uma chave configurada.
 
 Referências da implementação: [entrada de PDFs](https://developers.openai.com/api/docs/guides/file-inputs),
 [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) e
-[modelo configurado](https://developers.openai.com/api/docs/models/gpt-4.1-mini).
+[modelo configurado](https://developers.openai.com/api/docs/models/gpt-6-luna).
